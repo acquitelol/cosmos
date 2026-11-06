@@ -10,9 +10,8 @@ pub enum Block {
     MathContainer(String),
 }
 
-const INLINE_MACRO: &str = r"\inline-math{";
-const DISPLAY_OPEN: &str = r"\begin{math-container}";
-const DISPLAY_CLOSE: &str = r"\end{math-container}";
+const INLINE_MACROS: [&str; 2] = [r"\math{", r"\${"];
+const BLOCK_MACROS: [&str; 2] = [r"\container{", r"\#{"];
 
 pub fn parse_document(source: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
@@ -20,58 +19,73 @@ pub fn parse_document(source: &str) -> Vec<Block> {
     let mut text = String::new();
     let mut cursor = 0;
 
-    while cursor < source.len() {
+    'parse: while cursor < source.len() {
         let rest = &source[cursor..];
 
-        if rest.starts_with(DISPLAY_OPEN) {
-            flush_text(&mut paragraph, &mut text);
-            flush_paragraph(&mut blocks, &mut paragraph);
+        if let Some(block_macro) = matching_macro(rest, &BLOCK_MACROS) {
+            let brace_at = cursor + block_macro.len() - 1;
 
-            let inner_start = cursor + DISPLAY_OPEN.len();
-            if let Some(relative_end) = source[inner_start..].find(DISPLAY_CLOSE) {
-                let inner_end = inner_start + relative_end;
-                blocks.push(Block::MathContainer(
-                    source[inner_start..inner_end].trim().to_string(),
-                ));
-                cursor = inner_end + DISPLAY_CLOSE.len();
+            if let Some((expression, after)) = read_braced(source, brace_at) {
+                flush_text(&mut paragraph, &mut text);
+                flush_paragraph(&mut blocks, &mut paragraph);
+
+                blocks.push(Block::MathContainer(expression));
+                cursor = after;
             } else {
-                text.push_str(DISPLAY_OPEN);
-                cursor = inner_start;
+                text.push_str(block_macro);
+                cursor += block_macro.len();
             }
-            continue;
+
+            continue 'parse;
         }
 
-        if rest.starts_with(INLINE_MACRO) {
-            flush_text(&mut paragraph, &mut text);
-            let brace_at = cursor + INLINE_MACRO.len() - 1;
+        if let Some(inline_macro) = matching_macro(rest, &INLINE_MACROS) {
+            let brace_at = cursor + inline_macro.len() - 1;
+
             if let Some((expression, after)) = read_braced(source, brace_at) {
+                flush_text(&mut paragraph, &mut text);
+
                 paragraph.push(Inline::Math(expression));
                 cursor = after;
             } else {
-                text.push_str(INLINE_MACRO);
-                cursor += INLINE_MACRO.len();
+                text.push_str(inline_macro);
+                cursor += inline_macro.len();
             }
-            continue;
+
+            continue 'parse;
         }
 
-        if rest.starts_with("\n\n") {
+        if let Some(after) = blank_line_end(source, cursor) {
             flush_text(&mut paragraph, &mut text);
             flush_paragraph(&mut blocks, &mut paragraph);
-            cursor += 2;
-            continue;
+
+            cursor = after;
+            continue 'parse;
         }
 
         let next = rest
             .chars()
             .next()
             .expect("cursor is at a character boundary");
+
         text.push(next);
         cursor += next.len_utf8();
     }
 
     flush_text(&mut paragraph, &mut text);
     flush_paragraph(&mut blocks, &mut paragraph);
+
     blocks
+}
+
+fn matching_macro<'a>(rest: &str, macros: &'a [&'a str]) -> Option<&'a str> {
+    for &macro_text in macros {
+        if rest.starts_with(macro_text) {
+            return Some(macro_text);
+        }
+    }
+
+    None
 }
 
 pub(super) fn read_braced(source: &str, open_at: usize) -> Option<(String, usize)> {
@@ -115,4 +129,30 @@ fn flush_paragraph(blocks: &mut Vec<Block>, paragraph: &mut Vec<Inline>) {
     if !paragraph.is_empty() {
         blocks.push(Block::Paragraph(std::mem::take(paragraph)));
     }
+}
+
+fn line_ending_end(source: &str, at: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+
+    if bytes.get(at) == Some(&b'\n') {
+        Some(at + 1)
+    } else if bytes.get(at) == Some(&b'\r') && bytes.get(at + 1) == Some(&b'\n') {
+        Some(at + 2)
+    } else {
+        None
+    }
+}
+
+fn blank_line_end(source: &str, start: usize) -> Option<usize> {
+    let mut probe = line_ending_end(source, start)?;
+
+    while source
+        .as_bytes()
+        .get(probe)
+        .is_some_and(|b| *b == b' ' || *b == b'\t')
+    {
+        probe += 1;
+    }
+
+    line_ending_end(source, probe)
 }

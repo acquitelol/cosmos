@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 floem = "0.2.0"
-latex-rust = "3.0.1"
+# latex-rust = "3.0.1"
+latex-rust = { git = "https://github.com/acquitelol/latex-rust" }
 rfd = "0.15"

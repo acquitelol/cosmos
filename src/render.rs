@@ -1,4 +1,4 @@
-use latex_rust::{latex_to_svg, Dim, MathFont, SvgOptions};
+use latex_rust::{Dim, MathFont, MathStyle, SvgOptions, latex_to_svg, layout, parse};
 
 #[derive(Clone, Debug)]
 pub struct SvgImage {
@@ -13,7 +13,7 @@ pub fn math_svg(expression: &str, font: &MathFont, display: bool) -> Result<SvgI
     let prepared = fill_empty_slots(expression);
 
     let mut options = SvgOptions::new();
-    options.font_size_pt = Dim::from_i64(if display { 18 } else { 12 });
+    options.font_size_pt = Dim::from_i64(if display { 18 } else { 16 });
     options.display = display;
 
     let markup = latex_to_svg(&prepared, font, &options).map_err(|error| error.to_string())?;
